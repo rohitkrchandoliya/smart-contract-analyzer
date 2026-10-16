@@ -9,52 +9,34 @@ async function analyzeContract() {
         return;
     }
 
-    // This frontend-only project must be configured with a real BscScan API key.
-    // Do not put a private server-side key in a public frontend bundle.
-    const apiKey = window.BSCSCAN_API_KEY;
-    if (typeof apiKey !== 'string' || !apiKey.trim() || apiKey === 'YourBscScanAPIKey') {
-        resultElement.textContent = 'BscScan API is not configured. Set BSCSCAN_API_KEY in a trusted backend proxy before using this scanner.';
-        return;
-    }
-
     resultElement.textContent = 'Analyzing…';
-
     try {
-        const params = new URLSearchParams({
-            module: 'contract',
-            action: 'getsourcecode',
-            address: contractAddress,
-            apikey: apiKey
+        const response = await fetch('/api/contract-source?address=' + encodeURIComponent(contractAddress), {
+            signal: AbortSignal.timeout(20000)
         });
-        const response = await fetch('https://api.bscscan.com/api?' + params.toString());
-
-        if (!response.ok) {
-            throw new Error('BscScan returned HTTP ' + response.status + '.');
-        }
-
         const data = await response.json();
-        if (data.status === '1' && Array.isArray(data.result) && data.result.length > 0) {
-            const contractCode = data.result[0].SourceCode;
-            resultElement.replaceChildren();
+        if (!response.ok) throw new Error(data.error || 'Could not fetch contract details.');
 
-            if (!contractCode) {
-                resultElement.textContent = 'The address was found, but verified source code is not available.';
-                return;
-            }
+        resultElement.replaceChildren();
+        const summary = document.createElement('p');
+        summary.textContent = 'Contract: ' + (data.contractName || 'Unknown') +
+            ' · Compiler: ' + (data.compilerVersion || 'Unknown') +
+            ' · Verified source: ' + (data.verified ? 'Yes' : 'No');
+        resultElement.appendChild(summary);
 
-            const heading = document.createElement('p');
-            heading.textContent = 'Verified source code:';
+        if (data.sourceCode) {
             const pre = document.createElement('pre');
-            // Contract source is untrusted remote content. Never interpret it as HTML.
-            pre.textContent = contractCode;
-            resultElement.append(heading, pre);
+            // Contract source is untrusted remote content. Render it as text, never HTML.
+            pre.textContent = data.sourceCode;
+            resultElement.appendChild(pre);
         } else {
-            resultElement.textContent = data.message || 'No verified source code found for this address.';
+            const note = document.createElement('p');
+            note.textContent = 'Verified source code is not available for this address.';
+            resultElement.appendChild(note);
         }
     } catch (error) {
         resultElement.textContent = error instanceof Error
             ? 'Could not fetch contract details: ' + error.message
             : 'Could not fetch contract details. Please try again.';
-        console.error(error);
     }
 }
